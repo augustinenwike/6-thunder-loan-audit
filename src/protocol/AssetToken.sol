@@ -52,7 +52,9 @@ contract AssetToken is ERC20 {
     //////////////////////////////////////////////////////////////*/
     constructor(
         address thunderLoan,
-        IERC20 underlying,
+        IERC20 underlying, // e the token being distributed for flashloans
+        // Oh are the ERC20 tokens stored in AssetTokens.sol instead of thunderLoans
+        // q where are the tokens stored
         string memory assetName,
         string memory assetSymbol
     )
@@ -65,6 +67,7 @@ contract AssetToken is ERC20 {
         s_exchangeRate = STARTING_EXCHANGE_RATE;
     }
 
+    // e ok, only the thunderLoan contract can mint tokens
     function mint(address to, uint256 amount) external onlyThunderLoan {
         _mint(to, amount);
     }
@@ -73,19 +76,28 @@ contract AssetToken is ERC20 {
         _burn(account, amount);
     }
 
+    //  weird erc20??
+    // q what hapens if USDC blacklist the assetToken contract
+    // q what hapens if USDC blacklist the thunderLoan contract
+    // @follo-up weird ERC20 with USDC
     function transferUnderlyingTo(address to, uint256 amount) external onlyThunderLoan {
         i_underlying.safeTransfer(to, amount);
     }
 
+    // e responsible for updating the exchange rate of assetTokens to the underlying
     function updateExchangeRate(uint256 fee) external onlyThunderLoan {
         // 1. Get the current exchange rate
         // 2. How big the fee is should be divided by the total supply
         // 3. So if the fee is 1e18, and the total supply is 2e18, the exchange rate be multiplied by 1.5
         // if the fee is 0.5 ETH, and the total supply is 4, the exchange rate should be multiplied by 1.125
-        // it should always go up, never down
+        // it should always go up, never down --> INVARIANT
+        // q why should it always go up
         // newExchangeRate = oldExchangeRate * (totalSupply + fee) / totalSupply
         // newExchangeRate = 1 (4 + 0.5) / 4
         // newExchangeRate = 1.125
+        // q what if totalSupply is 0
+        // this breaks! is that an issue
+        // @audit gas this reads too many storage variable -> better to be stored as memory variable
         uint256 newExchangeRate = s_exchangeRate * (totalSupply() + fee) / totalSupply();
 
         if (newExchangeRate <= s_exchangeRate) {
