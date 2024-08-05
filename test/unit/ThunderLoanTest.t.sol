@@ -11,6 +11,7 @@ import { ERC1967Proxy } from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy
 import { BuffMockTSwap } from "../mocks/BuffMockTSwap.sol";
 import { IFlashLoanReceiver, IThunderLoan } from "../../src/interfaces/IFlashLoanReceiver.sol";
 import { BuffMockPoolFactory } from "../mocks/BuffMockPoolFactory.sol";
+import { ThunderLoanUpgraded } from "../../src/upgradedProtocol/ThunderLoanUpgraded.sol";
 
 contract ThunderLoanTest is BaseTest {
     uint256 constant AMOUNT = 10e18;
@@ -174,6 +175,18 @@ contract ThunderLoanTest is BaseTest {
 
         assert(tokenA.balanceOf(address(dor)) > 50e18 + calculatedFee);
 
+    }
+
+    function testUpgradeBreaks() public {
+        uint256 feeBeforeUpgrade = thunderLoan.getFee();
+        vm.startPrank(thunderLoan.owner());
+        ThunderLoanUpgraded upgraded = new ThunderLoanUpgraded();
+        thunderLoan.upgradeToAndCall(address(upgraded), "");
+        uint256 feeAfterUpgrade = thunderLoan.getFee();
+        vm.stopPrank();
+        console.log("feeBeforeUpgrade", feeBeforeUpgrade);
+        console.log("feeAfterUpgrade", feeAfterUpgrade);
+        assert(feeBeforeUpgrade != feeAfterUpgrade);
     }
 }
 

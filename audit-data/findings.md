@@ -1,4 +1,4 @@
-### [H-2] Erroneous `ThunderLoan::updateExchangeRate` in `deposit` to thik it has more feees than it really does, which blocks redemption and incorrectly sets the exchange rate.
+### [H-1] Erroneous `ThunderLoan::updateExchangeRate` in `deposit` to thik it has more feees than it really does, which blocks redemption and incorrectly sets the exchange rate.
 
 **Description:** In the ThunderLoan system, the `exchangeRate` is responsible for calculating the exchange rate between assetTokens and underlying tokens. In a way, its responsible for keeping track of how many fees to give to liquidity providers.
 
@@ -61,4 +61,60 @@ function deposit(IERC20 token, uint256 amount) external revertIfZero(amount) rev
 -      assetToken.updateExchangeRate(calculatedFee);
        token.safeTransferFrom(msg.sender, address(assetToken), amount);
     }
+```
+
+
+### [H-2] Mixing up variabvle location causes storage collisions in `ThunderLoan::s_flashLoanFee` and `ThunderLoan::s_currentlyFlashLoaning`, freezing protocol.
+
+**Description:** `ThunderLoan.sol` has two variable in the following other.
+
+```javascript
+    uint256 private s_feePrecision;
+    uint256 private s_flashLoanFee; // 0.3% ETH fee
+    mapping(IERC20 token => bool currentlyFlashLoaning) private s_currentlyFlashLoaning;
+```
+However, the upgraded contract `ThunderLoanUpgraded.sol` has them in a different order.
+
+```javascript
+    uint256 private s_flashLoanFee; // 0.3% ETH fee
+    uint256 public constant FEE_PRECISION = 1e18;
+    mapping(IERC20 token => bool currentlyFlashLoaning) private s_currentlyFlashLoaning;
+```
+Due to how solidity works, after the upgrade the `s_flashLoanFee` will have the value of `s_precision`. You cannot adjust the position of storage variables, and removing storage variables for constant variables, breaks the stprage locations as well.
+
+**Impact:**  After upgrade, the `s_flashLoanFee` will have the value of `s_feePrecision`. This means that users who take out flash loans right after an upgrade will be charged the wrong fee. 
+Additionally the `s_currentlyFlashLoaning` mapping will start on the wrong storage slot.
+
+**Proof of Concept:**
+<details>
+<summary>PoC</summary>
+
+Place the following into `ThunderLoanTest.t.sol`/
+
+```javascript
+    import { ThunderLoanUpgraded } from "../../src/upgradedProtocol/ThunderLoanUpgraded.sol";
+
+    function testUpgradeBreaks() public {
+        uint256 feeBeforeUpgrade = thunderLoan.getFee();
+        vm.startPrank(thunderLoan.owner());
+        ThunderLoanUpgraded upgraded = new ThunderLoanUpgraded();
+        thunderLoan.upgradeToAndCall(address(upgraded), "");
+        uint256 feeAfterUpgrade = thunderLoan.getFee();
+        vm.stopPrank();
+        console.log("feeBeforeUpgrade", feeBeforeUpgrade);
+        console.log("feeAfterUpgrade", feeAfterUpgrade);
+        assert(feeBeforeUpgrade != feeAfterUpgrade);
+    }
+```
+You can also see the storage layout difference by running `forge inspect ThunderLoan storage` and `forge inspect ThunderLoanUpgraded storage`
+
+</details>
+
+**Recommended Mitigation:** Do not switch the positions of the storage variables on upgrade, and leave a blank if you're going to replace a storage variable with a constant. In `ThunderLoanUpgraded.sol:`
+```diff
+-    uint256 private s_flashLoanFee; // 0.3% ETH fee
+-    uint256 public constant FEE_PRECISION = 1e18;
++    uint256 private s_blank;
++    uint256 private s_flashLoanFee; 
++    uint256 public constant FEE_PRECISION = 1e18;
 ```
